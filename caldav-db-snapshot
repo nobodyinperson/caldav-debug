@@ -1,0 +1,57 @@
+#!/usr/bin/make -f
+
+# arguments
+# The database file
+DB = 
+SQL = sqlite3
+SQLOUTOPTS = -list -header
+# list of user/calendar pairs to snapshot
+CALENDARS = 
+# the host to execute the command on (with ssh)
+HOST =  
+
+ifndef DB
+$(error please specify DB=/path/to/caldav/db.sqlite3)
+endif
+
+ifndef CALENDARS
+$(error please specify calendars to snapshot: CALENDARS="user1/calendar1 user2/calendar2")
+endif
+
+### SQL table and column names ###
+# the table containing the calendar data
+CALOBJ_TAB = calendarobjects
+# the calendar id column in CALOBJ_TAB
+CALOBJ_CALID_COL = calendarid
+# the table containing the calendars (ids)
+CALS_TAB = calendars
+# the column containing the user in CALS_TAB
+CALS_USER_COL = principaluri
+# the column containing the calendar name in CALS_TAB
+CALS_CAL_COL = uri
+
+empty :=
+space := $(empty) $(empty)
+
+time = $(shell date +%Y%m%d%H%M%S)
+
+DEFAULT_TARGET_NAME = all
+.PHONY: $(DEFAULT_TARGET_NAME)
+$(DEFAULT_TARGET_NAME):
+
+define calendar_log_rule
+$$(eval _calendar_split=$(subst /,$(space),$(1)))
+$$(eval _user=$$(word 1,$$(_calendar_split)))
+$$(eval _calendar=$$(word 2,$$(_calendar_split)))
+$$(eval _outfile=$$(_user)-$$(_calendar)-$(time).csv)
+$$(_outfile): $(DB)
+	$(if $(HOST),ssh $(HOST)) $(SQL) $(SQLOUTOPTS) $(DB) "\
+		select * from $(CALOBJ_TAB) where $(CALOBJ_CALID_COL) = \
+	    (select id from $(CALS_TAB) where $(CALS_USER_COL) like '%$$(_user)%' and $(CALS_CAL_COL) like '%$$(_calendar)%');\
+		" > $$@
+$(DEFAULT_TARGET_NAME): $$(_outfile)
+endef
+
+# $(foreach calendar,$(CALENDARS),$(info $(call calendar_log_rule,$(calendar))))
+$(foreach calendar,$(CALENDARS),$(eval $(call calendar_log_rule,$(calendar))))
+
