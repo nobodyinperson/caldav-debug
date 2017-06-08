@@ -9,6 +9,11 @@ SQLOUTOPTS = -list -header
 CALENDARS = 
 # the host to execute the command on (with ssh)
 HOST =  
+# prepended to the command executed on remote host (e.g. sudo)
+HOSTPRECMD = 
+# further SSH options
+SSHOPTS = 
+PRINTF = printf
 
 ifndef DB
 $(error please specify DB=/path/to/caldav/db.sqlite3)
@@ -19,16 +24,40 @@ $(error please specify calendars to snapshot: CALENDARS="user1/calendar1 user2/c
 endif
 
 ### SQL table and column names ###
+# the type
+TYPE = 
+ifeq ($(TYPE),baikal)
 # the table containing the calendar data
 CALOBJ_TAB = calendarobjects
 # the calendar id column in CALOBJ_TAB
 CALOBJ_CALID_COL = calendarid
 # the table containing the calendars (ids)
 CALS_TAB = calendars
+# the calendar id column in CALS_TAB
+CALS_CALID_COL = id
 # the column containing the user in CALS_TAB
 CALS_USER_COL = principaluri
 # the column containing the calendar name in CALS_TAB
 CALS_CAL_COL = uri
+endif
+ifeq ($(TYPE),sailfish)
+# the table containing the calendar data
+CALOBJ_TAB = Components
+# the calendar id column in CALOBJ_TAB
+CALOBJ_CALID_COL = Notebook
+# the table containing the calendars (ids)
+CALS_TAB = Calendars
+# the calendar id column in CALS_TAB
+CALS_CALID_COL = CalendarId
+# the column containing the user in CALS_TAB
+CALS_USER_COL = syncProfile
+# the column containing the calendar name in CALS_TAB
+CALS_CAL_COL = syncProfile
+endif
+
+ifeq ($(and $(CALOBJ_TAB),$(CALOBJ_CALID_COL),$(CALS_TAB),$(CALS_USER_COL),$(CALS_CAL_COL),$(CALS_CALID_COL)),)
+$(error Please specify either TYPE=baikal or TYPE=sailfish or set all CAL_* variables by hand)
+endif
 
 empty :=
 space := $(empty) $(empty)
@@ -43,12 +72,15 @@ define calendar_log_rule
 $$(eval _calendar_split=$(subst /,$(space),$(1)))
 $$(eval _user=$$(word 1,$$(_calendar_split)))
 $$(eval _calendar=$$(word 2,$$(_calendar_split)))
-$$(eval _outfile=$$(_user)-$$(_calendar)-$(time).csv)
-$$(_outfile): $(DB)
-	$(if $(HOST),ssh $(HOST)) $(SQL) $(SQLOUTOPTS) $(DB) "\
+$$(eval _outfile=$$(_user)-$$(_calendar)-$(if $(HOST),$(HOST),$(shell hostname))-$(time).csv)
+$$(_outfile): $(if $(HOST),,$(DB))
+	$(if $(HOST),ssh $(SSHOPTS) $(HOST) '$(HOSTPRECMD)) \
+	$(SQL) $(SQLOUTOPTS) $(DB) "\
 		select * from $(CALOBJ_TAB) where $(CALOBJ_CALID_COL) = \
-	    (select id from $(CALS_TAB) where $(CALS_USER_COL) like '%$$(_user)%' and $(CALS_CAL_COL) like '%$$(_calendar)%');\
-		" > $$@
+	    (select $(CALS_CALID_COL) from $(CALS_TAB) where $(CALS_USER_COL) like $(if $(HOST),'"'"',')%$$(_user)%$(if $(HOST),'"'"',') and $(CALS_CAL_COL) like $(if $(HOST),'"'"',')%$$(_calendar)%$(if $(HOST),'"'"','));\
+		"\
+	$(if $(HOST),') \
+	> $$@
 $(DEFAULT_TARGET_NAME): $$(_outfile)
 endef
 
